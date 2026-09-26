@@ -1,0 +1,124 @@
+name: exiftool
+title: ExifTool
+summary: Reads, writes and removes metadata in images, video, audio and documents, including EXIF, GPS, IPTC, XMP and camera maker notes.
+homepage: https://exiftool.org/
+# ExifTool is under the same terms as Perl. BZZ.pm, its DjVu decoder, is based
+# on DjVuLibre code under GPL-2.0-or-later. Geolocation.dat, its city database,
+# is derived from GeoNames data under CC BY 4.0.
+license: (Artistic-1.0-Perl OR GPL-1.0-or-later) AND GPL-2.0-or-later AND CC-BY-4.0
+source-release: true
+upstream:
+  source: github-tag
+  repository: exiftool/exiftool
+  # Tags are bare version numbers such as 13.59, with a two-digit minor. Every
+  # release is tagged, including those exiftool.org marks as development
+  # releases. The tags have no common prefix, so the whole tag list is read.
+  tag-pattern: '^(\d+\.\d{2})$'
+  version-template: '{1}'
+  versioning: loose
+  version: "13.59"
+  artifact:
+    # exiftool.org keeps only the current tarball; SourceForge keeps them all.
+    url: https://downloads.sourceforge.net/project/exiftool/Image-ExifTool-{version}.tar.gz
+    checksums:
+      url: https://downloads.sourceforge.net/project/exiftool/checksums-{version}.txt
+      algorithm: sha256
+    sha256: 668ea3acececb7235fbd0f4900e72d5f12c9b07e5c778fd36cb1e9b5828fd65a
+image:
+  entrypoint: [exiftool]
+  cmd: [-ver, -v]
+test:
+  - |
+    exiftool -ver > version.txt
+    test "$(cat version.txt)" = "$VERSION"
+    test "$(readlink /usr/local/bin/exiftool)" = /usr/local/lib/exiftool/exiftool
+  - |
+    # The optional Perl modules ExifTool uses for ZIP-based and compressed
+    # formats, digests and dates.
+    exiftool -ver -v > libraries.txt
+    for m in Archive::Zip Compress::Zlib Digest::MD5 Digest::SHA IO::Compress::Bzip2 \
+      IO::Compress::RawDeflate IO::Uncompress::RawInflate Time::Local Time::Piece; do
+      grep -Eq "^ +$m +[0-9]" libraries.txt || { cat libraries.txt >&2; echo "missing Perl module: $m" >&2; exit 1; }
+    done
+  - |
+    # A 16x16 red PNG, written with the zlib bindings that come with Perl.
+    perl -MCompress::Zlib -e '
+      sub chunk { my ($type, $data) = @_; pack("N", length $data) . $type . $data . pack("N", crc32($type . $data)) }
+      my $row = "\0" . "\xff\0\0" x 16;
+      binmode STDOUT;
+      print "\x89PNG\r\n\x1a\n", chunk("IHDR", pack("NNC5", 16, 16, 8, 2, 0, 0, 0)), chunk("IDAT", compress($row x 16)), chunk("IEND", "");
+    ' > photo.png
+    test "$(exiftool -s3 -FileType -ImageSize photo.png)" = "$(printf 'PNG\n16x16')"
+    exiftool -EXIF:Artist=randomcontainers -EXIF:DateTimeOriginal='2026:09:26 12:00:00' \
+      -GPSLatitude=48.8583 -GPSLatitudeRef=N -GPSLongitude=2.2945 -GPSLongitudeRef=E \
+      -XMP-exif:GPSLatitude=48.8583 -XMP-exif:GPSLongitude=2.2945 photo.png
+    # ExifTool keeps the unmodified file as <name>_original unless told not to.
+    test -s photo.png_original
+    if cmp -s photo.png_original photo.png; then echo 'photo.png was not changed' >&2; exit 1; fi
+    test "$(exiftool -s3 -EXIF:Artist photo.png)" = randomcontainers
+    test "$(exiftool -n -s3 -GPSLatitude -GPSLongitude photo.png)" = "$(printf '48.8583\n2.2945')"
+    test "$(exiftool -n -s3 -XMP-exif:GPSLatitude -XMP-exif:GPSLongitude photo.png)" = "$(printf '48.8583\n2.2945')"
+    # Reverse geocoding reads the city database in lib/Image/ExifTool.
+    test "$(exiftool -s3 -api geolocation -GeolocationCountryCode photo.png)" = FR
+    exiftool -o photo.xmp photo.png
+    test "$(exiftool -s3 -XMP-exif:DateTimeOriginal photo.xmp)" = '2026:09:26 12:00:00'
+    # -gps:all= removes only the EXIF copy of the position; '-gps*=' removes both.
+    exiftool -overwrite_original '-gps*=' photo.png
+    test -z "$(exiftool -s3 '-gps*' photo.png)"
+    test "$(exiftool -s3 -EXIF:Artist photo.png)" = randomcontainers
+  - |
+    # Office documents are ZIP files, which ExifTool reads with Archive::Zip.
+    perl -MArchive::Zip -e '
+      my $zip = Archive::Zip->new;
+      $zip->addString(q{<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>}, "[Content_Types].xml");
+      $zip->addString(q{<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Quarterly report</dc:title><dc:creator>randomcontainers</dc:creator></cp:coreProperties>}, "docProps/core.xml");
+      $zip->writeToFileNamed("report.docx") == 0 or die "cannot write report.docx\n";
+    '
+    exiftool -json -FileType -Title -Creator report.docx > report.json
+    perl -MJSON::PP -e '
+      my $info = JSON::PP->new->decode(do { local $/; <STDIN> })->[0];
+      $info->{FileType} eq "DOCX" && $info->{Title} eq "Quarterly report" && $info->{Creator} eq "randomcontainers"
+        or die "unexpected metadata: ", JSON::PP->new->canonical->encode($info), "\n";
+    ' < report.json
+examples:
+  - title: Show every tag in a photo with its group name
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/exiftool -a -G1 -s photo.jpg
+  - title: Remove the GPS position from every JPEG in the current directory
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/exiftool -overwrite_original '-gps*=' -ext jpg -ext jpeg .
+  - title: Rename photos after the date they were taken
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/exiftool '-FileName<DateTimeOriginal' -d '%Y%m%d_%H%M%S%%-c.%%e' .
+  - title: Write the metadata of every JPEG in a directory tree to a JSON file
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/exiftool -json -r -ext jpg -ext jpeg . > metadata.json
+combos:
+  - with: [imagemagick]
+    default: true
+    base: imagemagick
+    summary: ExifTool with ImageMagick, for converting and resizing images and then copying, fixing or removing their metadata.
+    test:
+      - |
+        # ExifTool sets the Orientation tag and ImageMagick's -auto-orient applies it.
+        magick -size 64x32 xc:red photo.jpg
+        exiftool -overwrite_original -n -Orientation=6 photo.jpg
+        test "$(magick photo.jpg -format '%[orientation]' info:)" = RightTop
+        magick photo.jpg -auto-orient upright.jpg
+        test "$(exiftool -s3 -ImageSize upright.jpg)" = 32x64
+        case "$(exiftool -n -s3 -Orientation upright.jpg)" in
+          '' | 1) ;;
+          *) echo "upright.jpg still asks to be rotated" >&2; exit 1 ;;
+        esac
+      - |
+        magick -size 400x300 gradient:red-blue original.jpg
+        exiftool -overwrite_original -EXIF:Artist=randomcontainers -EXIF:DateTimeOriginal='2026:09:26 12:00:00' \
+          -GPSLatitude=48.8583 -GPSLatitudeRef=N -GPSLongitude=2.2945 -GPSLongitudeRef=E \
+          -XMP-dc:Creator=randomcontainers -XMP-exif:GPSLatitude=48.8583 -XMP-exif:GPSLongitude=2.2945 original.jpg
+        test "$(exiftool -n -s3 -XMP-exif:GPSLatitude original.jpg)" = 48.8583
+        # -strip drops every profile; ExifTool copies the tags back without the
+        # GPS position, which original.jpg has in both EXIF and XMP.
+        magick original.jpg -resize 50% -strip small.jpg
+        test -z "$(exiftool -s3 -EXIF:all -XMP:all small.jpg)"
+        exiftool -overwrite_original -tagsFromFile original.jpg -all:all '-gps*=' small.jpg
+        test "$(exiftool -s3 -ImageSize small.jpg)" = 200x150
+        test "$(exiftool -s3 -EXIF:Artist small.jpg)" = randomcontainers
+        test "$(exiftool -s3 -EXIF:DateTimeOriginal small.jpg)" = '2026:09:26 12:00:00'
+        test "$(exiftool -s3 -XMP-dc:Creator small.jpg)" = randomcontainers
+        test -z "$(exiftool -s3 '-gps*' small.jpg)"
