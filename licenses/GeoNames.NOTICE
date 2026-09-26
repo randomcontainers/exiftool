@@ -1,0 +1,8 @@
+/usr/local/lib/exiftool/lib/Image/ExifTool/Geolocation.dat, the city
+database ExifTool reads for the geolocation feature, is derived from the
+GeoNames cities data (https://www.geonames.org/). ExifTool keeps the cities
+with a population of 2000 or more and stores them in its own format.
+
+The GeoNames data is licensed under the Creative Commons Attribution 4.0
+International License (CC BY 4.0). The license text is in the file CC-BY-4.0
+next to this one and at https://creativecommons.org/licenses/by/4.0/.
