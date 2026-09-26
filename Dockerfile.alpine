@@ -1,0 +1,70 @@
+# syntax=docker/dockerfile:1.27.0@sha256:bde3983e9c939224420ddaf6b784cc30e09b035a4dea01f581230c50809f372e
+# check=error=true
+
+ARG BASE_IMAGE=alpine:3.24
+
+FROM ${BASE_IMAGE} AS build
+SHELL ["/bin/ash", "-euo", "pipefail", "-c"]
+# The runtime packages are installed here too, so that the test suite also
+# covers the code paths that need Archive::Zip.
+RUN --mount=type=bind,source=runtime-deps.alpine,target=/tmp/runtime-deps \
+    xargs apk add --no-cache curl make < /tmp/runtime-deps
+
+# SourceForge redirects each download to one of its mirrors; a retry can
+# land on another mirror.
+ARG VERSION
+ARG SOURCE_SHA256
+RUN printf '%s\n' "${VERSION}" | grep -Eqx '[0-9]+\.[0-9]{2}' \
+      || { echo "unexpected VERSION: ${VERSION}" >&2; exit 1; }; \
+    printf '%s\n' "${SOURCE_SHA256}" | grep -Eqx '[0-9a-f]{64}' \
+      || { echo "SOURCE_SHA256 must be the tarball's sha256" >&2; exit 1; }; \
+    url="https://downloads.sourceforge.net/project/exiftool/Image-ExifTool-${VERSION}.tar.gz"; \
+    curl -fsSL --proto '=https' --proto-redir '=https' --retry 5 --retry-all-errors -o /tmp/exiftool.tar.gz "$url"; \
+    echo "${SOURCE_SHA256}  /tmp/exiftool.tar.gz" | sha256sum -c -; \
+    mkdir /src; \
+    tar -xzf /tmp/exiftool.tar.gz -C /src --strip-components=1; \
+    rm /tmp/exiftool.tar.gz; \
+    echo "$url" > /tmp/source-url
+
+# ExifTool is pure Perl. The script finds its modules in the lib directory
+# next to the file a symlink points to, so it is installed as one directory
+# instead of into Perl's version-specific site directories.
+WORKDIR /src
+RUN PERL_MM_USE_DEFAULT=1 perl Makefile.PL; \
+    make; \
+    make test
+
+COPY licenses/ /tmp/licenses/
+RUN --mount=type=bind,source=runtime-deps.alpine,target=/tmp/runtime-deps \
+    lib=/out/usr/local/lib/exiftool; \
+    meta=/out/usr/local/share/randomcontainers/exiftool; \
+    mkdir -p "$lib" /out/usr/local/bin "$meta/licenses"; \
+    cp -R exiftool lib arg_files config_files fmt_files "$lib/"; \
+    chmod -R u=rwX,go=rX "$lib"; \
+    chmod 755 "$lib/exiftool"; \
+    ln -s /usr/local/lib/exiftool/exiftool /out/usr/local/bin/exiftool; \
+    test "$("$lib/exiftool" -ver)" = "${VERSION}"; \
+    sed -n '/^COPYRIGHT AND LICENSE$/,/^DISTRIBUTION FILES$/p' README | sed '$d' > "$meta/licenses/COPYRIGHT"; \
+    grep -q 'same terms as Perl itself' "$meta/licenses/COPYRIGHT"; \
+    cp /tmp/licenses/* "$meta/licenses/"; \
+    echo "${VERSION}" > "$meta/version"; \
+    cp /tmp/source-url "$meta/source"; \
+    { \
+      echo "source-sha256=${SOURCE_SHA256}"; \
+      echo "perl=$(perl -e 'print substr($^V, 1)')"; \
+    } > "$meta/buildinfo"; \
+    cp /tmp/runtime-deps "$meta/runtime-deps"
+
+FROM ${BASE_IMAGE} AS slim
+RUN --mount=type=bind,source=runtime-deps.alpine,target=/tmp/runtime-deps \
+    set -eu; \
+    xargs apk add --no-cache ca-certificates tini < /tmp/runtime-deps; \
+    addgroup -g 1000 app; \
+    adduser -D -u 1000 -G app app; \
+    install -d -m 1777 /work /cache
+COPY --link --from=build /out/usr/local/ /usr/local/
+ENV LANG=C.UTF-8 XDG_CACHE_HOME=/cache
+WORKDIR /work
+USER 1000:1000
+ENTRYPOINT ["tini", "--", "exiftool"]
+CMD ["-ver", "-v"]
