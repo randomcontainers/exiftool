@@ -11,8 +11,6 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" \
   ghcr.io/randomcontainers/exiftool -a -G1 -s photo.jpg
 ```
 
-The same images can also be pulled as `randomcontainers.com/exiftool`.
-
 Remove the GPS position from every JPEG in the current directory:
 
 ```sh
