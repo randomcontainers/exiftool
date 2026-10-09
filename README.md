@@ -57,7 +57,7 @@ ImageMagick in the default image is the [randomcontainers/imagemagick](https://g
 
 ## Default or slim
 
-The default image (`latest`) adds ImageMagick to ExifTool, for jobs that change the pixels and the metadata together, such as resizing photos and keeping their EXIF data. Most ExifTool jobs only read or write metadata, and `slim` has everything they need. Use `slim` for that, and as the base when you build your own image.
+The default image (`latest`) adds ImageMagick to ExifTool, for jobs that change the pixels and the metadata together, such as resizing photos and keeping their EXIF data. Most ExifTool jobs only read or write metadata, and `slim` has everything they need. Use `slim` for that, and as the base when you build your own image. The default images of [libjpeg-turbo](https://github.com/randomcontainers/libjpeg-turbo) and [libheif](https://github.com/randomcontainers/libheif) include the `slim` build.
 
 The default image is also published as `ghcr.io/randomcontainers/exiftool-imagemagick`, built in the [exiftool-imagemagick](https://github.com/randomcontainers/exiftool-imagemagick) repository with the same contents and a different digest.
 
