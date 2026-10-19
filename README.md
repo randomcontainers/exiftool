@@ -170,7 +170,7 @@ Every ExifTool version has a GitHub release in this repository, named `v<version
 
 The default image also contains ImageMagick, under the ImageMagick license; see [randomcontainers/imagemagick](https://github.com/randomcontainers/imagemagick). The Ubuntu and Alpine packages in the images, Perl among them, keep their own licenses. The SBOM lists them.
 
-The files in this repository are available under the MIT license, see [LICENSE](LICENSE).
+The files in this repository are available under the MIT license, see [LICENSE](LICENSE), except the license texts in `licenses/`, which keep their own terms.
 
 ## Requesting a tool
 
