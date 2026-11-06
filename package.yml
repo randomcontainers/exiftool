@@ -16,14 +16,14 @@ upstream:
   tag-pattern: '^(\d+\.\d{2})$'
   version-template: '{1}'
   versioning: loose
-  version: "13.60"
+  version: "13.61"
   artifact:
     # exiftool.org keeps only the current tarball; SourceForge keeps them all.
     url: https://downloads.sourceforge.net/project/exiftool/Image-ExifTool-{version}.tar.gz
     checksums:
       url: https://downloads.sourceforge.net/project/exiftool/checksums-{version}.txt
       algorithm: sha256
-    sha256: c8e3c42576f46d862e4cd9c192989776e7363931e890c95056bcd6293e83ea36
+    sha256: df7f42c14b4f58a60bec39feae0ee9593000ee27e44920d2b0a21c6627de0baa
 image:
   entrypoint: [exiftool]
   cmd: [-ver, -v]
